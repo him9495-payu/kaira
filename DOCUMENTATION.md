@@ -103,3 +103,23 @@ This document captures the current feature set, architecture, and known gaps/rem
 - Implement real decision-backend calls and strengthen the post-KYC workflow (selfie/bank verification, document uploads).
 - Add automated tests plus CI to guard the critical conversation router and data-access layers.
 
+---
+
+## 10. Vision & Future Capabilities
+
+### For Users
+- Provide a single conversational surface for support, status checks, and proactive notifications on every PayU Finance product.
+- Surface personalized loan and cross-sell offers in WhatsApp, letting customers accept or decline without installing another app.
+- Deliver instant access to repayment options, overdue EMI status, payoff quotes, and digital document vaults.
+
+### For PayU Finance
+- Deepen engagement by promoting new features, releases, and campaigns directly in WhatsApp broadcasts or one-to-one threads.
+- Strengthen collections and customer support through scalable automations, while preserving the ability to escalate seamlessly to agents (voice/chat/CRM).
+- Avoid building and maintaining parallel mobile apps—leverage WhatsApp’s ubiquity and high open rates for all high-touch journeys.
+
+### Platform Roadmap
+- **End-to-end onboarding**: Expand beyond personal loans to cover every PayU Finance product line; resume journeys when users drop off on partner pages or after inactivity.
+- **Lifecycle orchestration**: Power repayment reminders, loan-detail lookups, document downloads, and L1 collections outreach with full audit trails.
+- **Intelligent assistance**: Use LLM-powered copilots for L1 support, scripted collections, and cross-sell prompts during and after loan maturity.
+- **Always-on gateway**: Position WhatsApp as the canonical gateway between customers and PayU Finance with searchable history, traceability, and compliance-friendly logging.
+
