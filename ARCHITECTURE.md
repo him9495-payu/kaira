@@ -1,6 +1,6 @@
-# Architecture – PayU Flowless WhatsApp Chatbot
+# Architecture – Kaira WhatsApp Chatbot
 
-This document describes how the Flowless WhatsApp chatbot is assembled: the runtime components, how data moves between them, and the engineering work required to reach the long-term vision.
+This document describes how the Kaira WhatsApp chatbot is assembled: the runtime components, how data moves between them, and the engineering work required to reach the long-term vision.
 
 ---
 

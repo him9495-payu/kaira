@@ -1,6 +1,6 @@
-# PayU Flowless WhatsApp Chatbot – Product Documentation
+# Kaira WhatsApp Chatbot – Product Documentation
 
-The Flowless chatbot delivers PayU Finance experiences over WhatsApp—from new-loan onboarding to post-loan care and collections. This document explains the current capabilities, how they are implemented, and what remains on the roadmap.
+Kaira delivers PayU Finance experiences over WhatsApp—from new-loan onboarding to post-loan care and collections. This document explains the current capabilities, how they are implemented, and what remains on the roadmap.
 
 ---
 
