@@ -1,125 +1,118 @@
-# PayU Flowless WhatsApp Chatbot
+# PayU Flowless WhatsApp Chatbot – Product Documentation
 
-This document captures the current feature set, architecture, and known gaps/remaining work for the Flowless PayU Finance WhatsApp chatbot contained in this repository (`chatbot.py`, `db_io.py`, `whatsapp_messaging.py`).
-
----
-
-## 1. System Overview
-- **Purpose**: Automate PayU Finance’s bilingual (English/Hindi) personal-loan journey on WhatsApp, from lead capture to disbursement and post-loan support.
-- **Tech stack**: FastAPI application (`chatbot.py`) that exposes Meta WhatsApp webhook endpoints, talks to AWS Bedrock (optional) for support answers, and uses AWS DynamoDB (via `db_io.py`) for persistence. WhatsApp delivery is handled by `MetaWhatsAppClient` in `whatsapp_messaging.py`.
-- **Deployment targets**: Runs as a regular FastAPI/uvicorn service (`python chatbot.py`) or as an AWS Lambda via `mangum`’s adapter (`lambda_handler`).
+The Flowless chatbot delivers PayU Finance experiences over WhatsApp—from new-loan onboarding to post-loan care and collections. This document explains the current capabilities, how they are implemented, and what remains on the roadmap.
 
 ---
 
-## 2. Module Breakdown
-
-### `chatbot.py`
-- Entry point defining the FastAPI app, webhook routes, and overall conversation orchestrator.
-- Holds configuration (env-driven), language packs, onboarding sequence, offer generation logic, support handling, document/selfie/NACH helpers, and the routing logic in `handle_incoming_message`.
-- Integrates with:
-  - `MetaWhatsAppClient` for outbound messaging.
-  - `UserProfileStore`, `LoanRecordStore`, and `InteractionStore` for persistence.
-  - `BedrockSupportResponder` (optional) for LLM-powered support replies.
-
-### `db_io.py`
-- Contains DynamoDB-facing dataclasses (`UserProfile`, `ConversationState`) plus lightweight repository classes for users, loans, and interactions.
-- Provides serialization helpers (`serialize_conversation_state`, `normalize_decimals`, `_sanitize_for_dynamo`) and timestamp utilities.
-- Assumes `boto3` is available; there is no local in-memory fallback.
-
-### `whatsapp_messaging.py`
-- Thin Meta WhatsApp Cloud API client supporting text, buttons, lists, documents, images, templates, URL buttons, location requests, and selfie prompts.
-- Automatically degrades to console logging (“dry-run”) when credentials are absent, aiding local development.
+## 1. Purpose & Value
+- **For customers**: Provide a familiar, always-on channel for onboarding, loan tracking, document access, and repayment actions without installing another app.
+- **For PayU Finance**: Drive engagement, collections, and cross-sell through automated yet auditable conversations while keeping operational costs low.
+- **Channels & languages**: WhatsApp with English/Hindi parity; experiences are designed to be button-first but fall back to typed input gracefully.
 
 ---
 
-## 3. Conversation Journey (Happy Path)
-1. **Language selection**: User receives a welcome message and interactive buttons to choose English or Hindi. The choice is persisted on the profile.
-2. **Intent selection**: Buttons for “Get Loan” vs “Support”. Support jumps straight into the support journey; “Get Loan” kicks off onboarding.
-3. **Onboarding fields** (order defined in `ONBOARDING_SEQUENCE`):
-   - Full name → Date of birth → Employment status → Monthly income → Loan purpose → Consent to credit check.
-   - Each field has validation helpers (`parse_numeric`, `compute_age_from_dob`, `normalize_boolean`) and both typed-input + button pathways.
-4. **Offer generation**: `generate_offers` crafts dummy offers and `present_offers` renders a single rich message with interactive offer-selection buttons.
-5. **KYC & document steps**: After offer acceptance the bot issues prompts for KYC completion, selfie upload, bank details, NACH, and agreement signature.
-6. **Decision & disbursement**: `run_final_checks_and_disburse` re-validates eligibility using the fallback `DecisionClient`, persists loan records, and sends approval/rejection.
-7. **Post-loan support**: `send_post_loan_menu` exposes buttons for viewing/download loan info, repayment instructions, or agent escalation.
-8. **Support journey** (available anytime): knowledge-base answers, Bedrock-generated replies, and manual escalation via `escalate_to_agent`.
+## 2. Product Capabilities
+1. **Intent & language orchestration**
+   - Welcomes users, captures language preference, and routes them to onboarding or support journeys.
+   - Language packs live in `chatbot.py` and drive every prompt and button label.
+2. **End-to-end onboarding**
+   - Guided sequence: name → DOB → employment → income → purpose → consent.
+   - Validations: numeric parsing, DOB-to-age computation, boolean synonyms.
+   - Dummy decisioning generates multiple offers, captured in profile metadata.
+3. **Offer acceptance & KYC trail**
+   - Interactive buttons let customers select an offer, then progress through KYC, selfie upload, bank detail capture, NACH, and agreement signature prompts.
+4. **Decision & disbursement**
+   - `run_final_checks_and_disburse` re-evaluates the application, persists loan data, and pushes the final approval/rejection back to WhatsApp.
+5. **Support & collections**
+   - Knowledge-base answers, Bedrock-powered agent (when enabled), and escalation helpers.
+   - Post-loan menu exposes repayment links, statement downloads, and human handoff.
+6. **Notifications & document delivery**
+   - WhatsApp interactive messages convey offers, agreements, and reminders with audit logs recorded via `InteractionStore`.
 
 ---
 
-## 4. Feature Highlights
-- **Bilingual UX**: Centralized language packs for English/Hindi covering prompts, buttons, and journey texts. Language preference stored per user.
-- **Interactive-first design**: Extensive use of WhatsApp interactive buttons/lists (`send_interactive_buttons`, `send_buttons_split`) to keep responses structured.
-- **Stateful onboarding**: `ConversationState` objects persisted inside `UserProfile.metadata["conversation_state"]`, allowing users to pause/resume mid-journey.
-- **Dummy credit decisioning**: Self-contained `generate_offers` and `DecisionClient` to simulate approvals when the real backend is unavailable.
-- **KYC/document placeholders**: Hooks for KYC completion, selfie ingestion, bank detail parsing, NACH initiation, and agreement distribution (with PDF attachment fallbacks).
-- **Support automation**: Rule-based KB answers plus optional AWS Bedrock responses, with telemetry recorded via `InteractionStore`.
-- **Audit & analytics**: Every inbound/outbound message logs through `record_interaction`; loan decisions are mirrored to Dynamo via `LoanRecordStore`.
-- **Deployment flexibility**: Same codebase can run locally with uvicorn or as an AWS Lambda using Mangum.
+## 3. Code Structure
+| File | Responsibility |
+| --- | --- |
+| `chatbot.py` | FastAPI app, webhook router, conversation engine, onboarding/support logic, KYC/disbursement helpers, post-loan flows. |
+| `db_io.py` | Dataclasses (`UserProfile`, `ConversationState`) and DynamoDB-backed stores for profiles, loans, and interaction logs. |
+| `whatsapp_messaging.py` | Meta WhatsApp client with helpers for text, interactive buttons/lists, documents, images, templates, URL buttons, and location/selfie prompts. |
+
+The application can run via `uvicorn chatbot:app` or as an AWS Lambda function (`lambda_handler`) using Mangum.
 
 ---
 
-## 5. Configuration & Integrations
-- **Environment variables** (non-exhaustive): `META_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `META_VERIFY_TOKEN`, `BACKEND_DECISION_URL`, `BACKEND_DECISION_API_KEY`, `USER_TABLE_NAME`, `INTERACTION_TABLE_NAME`, `LOAN_TABLE_NAME`, `AWS_REGION`, `INACTIVITY_MINUTES`, `BEDROCK_MODEL_ID`, `HUMAN_HANDOFF_QUEUE`.
-- **External services**:
-  - Meta WhatsApp Cloud API (Graph API).
-  - AWS DynamoDB (three tables).
-  - AWS Bedrock (anthropic.claude-3-haiku by default) for support responses.
-  - Optional backend decisioning service (placeholder `DecisionClient` implemented locally).
+## 4. Conversation Blueprint
+1. **Entry**: Language prompt → interactive offer/support menu.
+2. **Onboarding branch**:
+   - Each field uses `prompt_for_field` and `handle_typed_onboarding_input` to collect validated data.
+   - Answers persist into `conversation_state.answers`; offers + selections saved inside `UserProfile.metadata`.
+3. **Support branch**:
+   - `handle_support` evaluates quick intents (download app/email), tries Bedrock, falls back to KB text, and finally offers escalation.
+4. **Post-offer workflow**:
+   - Chosen offer triggers KYC/selfie/bank prompts, then `run_final_checks_and_disburse`.
+   - Successful disbursement feeds `LoanRecordStore` and triggers post-loan menus.
+
+State is stored across sessions by serializing `ConversationState` into Dynamo, so users can return hours later without restarting.
 
 ---
 
-## 6. Data & Persistence Model
-- **UserProfile**: Phone-centric record storing language, lifecycle status, timestamps, and an open-ended metadata dict (offers, chosen offer, bank info, etc.).
-- **ConversationState**: Lightweight object (language, journey, answers, flags) serialized into the user profile for resuming flows.
-- **LoanRecordStore**: Persists the latest decision snapshot (amount, APR, terms, EMI schedule placeholder). Includes `upsert_from_decision` for idempotent writes.
-- **InteractionStore**: Append-only log of inbound/outbound/support/system events with ISO timestamps for auditing.
+## 5. Integrations & Config
+- **Meta WhatsApp Cloud API**: requires `META_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `META_VERIFY_TOKEN`.
+- **AWS DynamoDB**: tables for users (`USER_TABLE_NAME`), interactions (`INTERACTION_TABLE_NAME`), and loans (`LOAN_TABLE_NAME`) within `AWS_REGION`.
+- **Decision backend**: optional URL/API key pair (`BACKEND_DECISION_URL`, `BACKEND_DECISION_API_KEY`)—currently unused but wired for future HTTP calls.
+- **Bedrock support**: toggled via `BEDROCK_MODEL_ID`; silently disabled when boto3 or credentials are missing.
+- **Operational toggles**: `LOG_LEVEL`, `INACTIVITY_MINUTES`, `HUMAN_HANDOFF_QUEUE`.
+
+When WhatsApp credentials are absent, the messenger logs payloads (`[dry-run]`). When DynamoDB is unavailable, the app fails fast because the stores instantiate boto3 resources at import time.
 
 ---
 
-## 7. Operational Notes
-- **Logging**: Uses Python’s `logging` module; log level controlled by `LOG_LEVEL`.
-- **Error handling**: Most Dynamo/Bedrock interactions are wrapped in try/except with logging; message handling attempts to continue even when DB writes fail.
-- **Health endpoint**: `/healthz` reports service readiness plus toggles for dependent systems (messenger enabled, backend decision configured, Dynamo availability).
-- **Local dev**: Without Meta tokens the messenger logs payloads (`[dry-run]`). Without DynamoDB/boto3 the process will fail at import-time; mocks are required for offline testing.
+## 6. Operational Considerations
+- **Logging**: Python logging with module-level loggers (`payu.flowless.chatbot`, `db_io`, `whatsapp_messaging`).
+- **Health checks**: `/healthz` reports messenger connectivity, decision-backend presence, and Dynamo availability.
+- **Observability**: Every inbound/outbound/support event is stored in `InteractionStore`, creating an auditable trail for regulators and collections officers.
+- **Error handling**: Conversation flow tries to continue even when interactions or loan writes fail, but the errors are logged for manual follow-up.
 
 ---
 
-## 8. Remaining Work / Known Gaps
-1. **Hard dependency on boto3/DynamoDB**: `UserProfileStore`, `LoanRecordStore`, and `InteractionStore` are instantiated at import time, causing the entire app to crash locally when Dynamo credentials are absent. Provide an in-memory or file-based fallback for development/unit tests.
-2. **Missing persistence for Bedrock toggle**: When `boto3` is unavailable the `BedrockSupportResponder` silently disables support automation without notifying operators. Consider adding health/metrics or feature flags to surface this state.
-3. **`send_location_request` bug**: `MetaWhatsAppClient.send_location_request` treats `_post` as returning a `requests.Response`, but `_post` currently returns `None`, so attribute access (`r.status_code`) will raise. Update `_post` to return the response or adjust `send_location_request` to avoid dereferencing.
-4. **Document/selfie handling is placeholder**: Selfies and agreements are acknowledged but never stored or verified. Bank details are accepted via plain text without validation/PII safeguards. Future work should integrate secure storage, document OCR, and IFSC validation.
-5. **Decision backend integration**: `DecisionClient` always falls back to local dummy logic; `BACKEND_DECISION_URL` and API key are parsed but never used. Implement the actual HTTP call and error-retry strategy.
-6. **Offer overflow handling**: `present_offers` sends a single button message even if more than three offers exist, but WhatsApp only allows three buttons; additional offers beyond the first three are silently dropped. Add pagination/carousel or split messages.
-7. **Inactivity handling**: `INACTIVITY_MINUTES` is defined but never enforced—stale conversations are never reset. Implement periodic cleanup or auto-reset when users return after long pauses.
-8. **Testing & CI**: No automated tests or linting workflows exist. Adding unit tests for conversation routing, Dynamo repositories (with moto/localstack), and WhatsApp payload generation would de-risk future changes.
-9. **Security & compliance gaps**: Sensitive data (bank details, KYC state) is stored unencrypted in Dynamo metadata, and there is no explicit masking/auditing. Introduce encryption at rest, access controls, and data retention policies.
-10. **Agent handoff plumbing**: `escalate_to_agent` only logs metadata; it does not actually enqueue to a support system (`HUMAN_HANDOFF_QUEUE` is unused outside metadata). Integrate with the real queue/CRM and confirm delivery.
+## 7. Current Limitations
+1. **Hard AWS dependency** – No local mock for DynamoDB; boto3 must be configured even for unit tests.
+2. **Decision client stub** – Always uses local dummy scores; remote decision engine integration remains TODO.
+3. **WhatsApp location bug** – `send_location_request` assumes `_post` returns a response object; today `_post` returns `None`, leading to attribute errors.
+4. **Document/KYC placeholders** – Selfies and agreements are acknowledged but never stored; bank details lack masking and IFSC validation.
+5. **Offer overflow** – WhatsApp only supports three buttons per message; additional offers are silently dropped.
+6. **Inactivity rules** – `INACTIVITY_MINUTES` is unused; stale sessions never reset automatically.
+7. **Security & compliance** – Sensitive metadata is stored unencrypted; no masking, retention policies, or access controls are defined.
+8. **Testing & CI** – No automated tests or pipelines cover the router, decision helpers, or WhatsApp payload generation.
+9. **Agent handoff** – `escalate_to_agent` records metadata but does not push to a real queue or CRM.
 
 ---
 
-## 9. Suggested Next Steps
-- Prioritize fixing the WhatsApp client bug and providing a test-friendly persistence layer, enabling local development without AWS dependencies.
-- Implement real decision-backend calls and strengthen the post-KYC workflow (selfie/bank verification, document uploads).
-- Add automated tests plus CI to guard the critical conversation router and data-access layers.
+## 8. Vision & Future Capabilities
+### Customer experience
+- Seamless onboarding for every PayU Finance product, even when users drop off on partner funnels; WhatsApp re-engages them later to improve conversion.
+- Lone hub for proactive updates: personalized offers, overdue EMI nudges, payoff quotes, and digital document delivery.
+- Quick access to repayment actions, loan histories, and L1 support with LLM copilots, keeping human agents for escalations only.
+
+### PayU Finance outcomes
+- Higher engagement and collections without building another app—WhatsApp already sits on every phone and boasts the highest open rates.
+- Automated yet auditable operations: every interaction is logged, making compliance reviews and dispute resolutions straightforward.
+- Gateway for cross-sells before, during, and after loan maturity, with smart prompts tuned by behavioral data.
+
+### Platform roadmap
+1. **True end-to-end journeys** for all PayU Finance offerings (not just personal loans).
+2. **Lifecycle orchestration** that reactivates inactive users, handles repayment workflows, and shares statements on demand.
+3. **Intelligent collections & support** using LLMs for contextual replies and scripted nudges, while keeping human agents in the loop.
+4. **Enterprise integration** with CRMs, ticketing systems, and analytics pipelines to turn WhatsApp into the definitive gateway between PayU Finance and its customers.
 
 ---
 
-## 10. Vision & Future Capabilities
+## 9. Execution Priorities
+1. Ship a local-friendly persistence layer or mock to unblock testing.
+2. Fix the WhatsApp client bug and add retries/telemetry to outbound requests.
+3. Implement the real decision-backend call path and harden KYC/document handling.
+4. Introduce automated tests plus CI to protect the router, stores, and messaging helpers.
 
-### For Users
-- Provide a single conversational surface for support, status checks, and proactive notifications on every PayU Finance product.
-- Surface personalized loan and cross-sell offers in WhatsApp, letting customers accept or decline without installing another app.
-- Deliver instant access to repayment options, overdue EMI status, payoff quotes, and digital document vaults.
-
-### For PayU Finance
-- Deepen engagement by promoting new features, releases, and campaigns directly in WhatsApp broadcasts or one-to-one threads.
-- Strengthen collections and customer support through scalable automations, while preserving the ability to escalate seamlessly to agents (voice/chat/CRM).
-- Avoid building and maintaining parallel mobile apps—leverage WhatsApp’s ubiquity and high open rates for all high-touch journeys.
-
-### Platform Roadmap
-- **End-to-end onboarding**: Expand beyond personal loans to cover every PayU Finance product line; resume journeys when users drop off on partner pages or after inactivity.
-- **Lifecycle orchestration**: Power repayment reminders, loan-detail lookups, document downloads, and L1 collections outreach with full audit trails.
-- **Intelligent assistance**: Use LLM-powered copilots for L1 support, scripted collections, and cross-sell prompts during and after loan maturity.
-- **Always-on gateway**: Position WhatsApp as the canonical gateway between customers and PayU Finance with searchable history, traceability, and compliance-friendly logging.
+Delivering these will move the product closer to the roadmap while keeping today’s conversations reliable.
 
